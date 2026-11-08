@@ -43,6 +43,9 @@ import com.example.tripmate.data.TripDao
 import com.example.tripmate.data.TripDatabase
 import com.example.tripmate.ui.theme.TripMateTheme
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,22 +65,161 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun TripMateApp(tripDao: TripDao) {
     var selectedTripId by remember { mutableStateOf<Int?>(null) }
+    var selectedTab by remember { mutableStateOf("Home") }
 
     val selectedTrip by tripDao
         .getTripById(selectedTripId ?: -1)
         .collectAsState(initial = null)
 
-    if (selectedTripId != null && selectedTrip != null) {
-        TripDetailsScreen(
-            trip = selectedTrip!!,
-            tripDao = tripDao,
-            onBack = { selectedTripId = null }
-        )
-    } else {
-        TripHomeScreen(
-            tripDao = tripDao,
-            onTripClick = { tripId -> selectedTripId = tripId }
-        )
+    Scaffold(
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = selectedTab == "Home",
+                    onClick = { selectedTab = "Home" },
+                    icon = { Text("⌂") },
+                    label = { Text("Home") }
+                )
+
+                NavigationBarItem(
+                    selected = selectedTab == "Trips",
+                    onClick = { selectedTab = "Trips" },
+                    icon = { Text("✈") },
+                    label = { Text("Trips") }
+                )
+
+                NavigationBarItem(
+                    selected = selectedTab == "Budget",
+                    onClick = { selectedTab = "Budget" },
+                    icon = { Text("$") },
+                    label = { Text("Budget") }
+                )
+
+                NavigationBarItem(
+                    selected = selectedTab == "Packing",
+                    onClick = { selectedTab = "Packing" },
+                    icon = { Text("✓") },
+                    label = { Text("Packing") }
+                )
+            }
+        }
+    ) { innerPadding ->
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            when (selectedTab) {
+                "Home" -> {
+                    TripHomeScreen(
+                        tripDao = tripDao,
+                        onTripClick = { tripId ->
+                            selectedTripId = tripId
+                            selectedTab = "Trips"
+                        }
+                    )
+                }
+
+                "Trips" -> {
+                    if (selectedTripId != null && selectedTrip != null) {
+                        TripDetailsScreen(
+                            trip = selectedTrip!!,
+                            tripDao = tripDao,
+                            onBack = { selectedTripId = null }
+                        )
+                    } else {
+                        TripListScreen(
+                            tripDao = tripDao,
+                            title = "My trips",
+                            onTripClick = { tripId ->
+                                selectedTripId = tripId
+                            }
+                        )
+                    }
+                }
+
+                "Budget" -> {
+                    if (selectedTripId != null && selectedTrip != null) {
+                        BudgetScreen(
+                            trip = selectedTrip!!,
+                            tripDao = tripDao,
+                            onBack = {
+                                selectedTripId = null
+                                selectedTab = "Trips"
+                            }
+                        )
+                    } else {
+                        TripListScreen(
+                            tripDao = tripDao,
+                            title = "Choose a trip for your budget",
+                            onTripClick = { tripId ->
+                                selectedTripId = tripId
+                            }
+                        )
+                    }
+                }
+
+                "Packing" -> {
+                    if (selectedTripId != null && selectedTrip != null) {
+                        PackingScreen(
+                            trip = selectedTrip!!,
+                            tripDao = tripDao,
+                            onBack = {
+                                selectedTripId = null
+                                selectedTab = "Trips"
+                            }
+                        )
+                    } else {
+                        TripListScreen(
+                            tripDao = tripDao,
+                            title = "Choose a trip for packing",
+                            onTripClick = { tripId ->
+                                selectedTripId = tripId
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+@Composable
+fun TripListScreen(
+    tripDao: TripDao,
+    title: String,
+    onTripClick: (Int) -> Unit
+) {
+    val trips by tripDao.getAllTrips().collectAsState(initial = emptyList())
+
+    Scaffold { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.headlineLarge
+                )
+            }
+
+            if (trips.isEmpty()) {
+                item {
+                    Text("No trips yet. Go to Home and tap + to create your first trip.")
+                }
+            } else {
+                items(trips) { trip ->
+                    TripCard(
+                        trip = trip,
+                        onClick = { onTripClick(trip.id) }
+                    )
+                }
+            }
+        }
     }
 }
 
