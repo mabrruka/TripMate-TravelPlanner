@@ -184,6 +184,7 @@ fun TripMateApp(tripDao: TripDao) {
         }
     }
 }
+
 @Composable
 fun TripListScreen(
     tripDao: TripDao,
@@ -191,6 +192,7 @@ fun TripListScreen(
     onTripClick: (Int) -> Unit
 ) {
     val trips by tripDao.getAllTrips().collectAsState(initial = emptyList())
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold { innerPadding ->
         LazyColumn(
@@ -212,16 +214,22 @@ fun TripListScreen(
                     Text("No trips yet. Go to Home and tap + to create your first trip.")
                 }
             } else {
-                items(trips) { trip ->
+                items(trips, key = { it.id }) { trip ->
                     TripCard(
                         trip = trip,
-                        onClick = { onTripClick(trip.id) }
+                        onClick = { onTripClick(trip.id) },
+                        onDelete = {
+                            coroutineScope.launch {
+                                tripDao.deleteTripCompletely(trip)
+                            }
+                        }
                     )
                 }
             }
         }
     }
 }
+
 
 @Composable
 fun TripHomeScreen(
@@ -308,8 +316,111 @@ fun TripHomeScreen(
                 items(trips, key = { it.id }) { trip ->
                     TripCard(
                         trip = trip,
-                        onClick = { onTripClick(trip.id) }
+                        onClick = { onTripClick(trip.id) },
+                        onDelete = {
+                            coroutineScope.launch {
+                                tripDao.deleteTripCompletely(trip)
+                            }
+                        }
                     )
+                    @Composable
+                    fun TripCard(
+                        trip: Trip,
+                        onClick: () -> Unit,
+                        onDelete: () -> Unit
+                    ) {
+                        var showDeleteConfirmation by remember(trip.id) {
+                            mutableStateOf(false)
+                        }
+
+                        Card(
+                            onClick = onClick,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp)
+                            ) {
+                                Text(
+                                    trip.name,
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+
+                                Text(
+                                    trip.destination,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Text("${trip.startDate} to ${trip.endDate}")
+                                Text("Budget: %.2f".format(trip.budget))
+
+                                if (trip.notes.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(trip.notes)
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Text(
+                                    "Tap to view itinerary →",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+
+                                TextButton(
+                                    onClick = {
+                                        showDeleteConfirmation = true
+                                    }
+                                ) {
+                                    Text(
+                                        "Delete trip",
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+
+                        if (showDeleteConfirmation) {
+                            AlertDialog(
+                                onDismissRequest = {
+                                    showDeleteConfirmation = false
+                                },
+                                title = {
+                                    Text("Delete trip?")
+                                },
+                                text = {
+                                    Text(
+                                        "Are you sure you want to delete \"${trip.name}\"? " +
+                                                "This will also permanently delete its itinerary, expenses, and packing items."
+                                    )
+                                },
+                                confirmButton = {
+                                    TextButton(
+                                        onClick = {
+                                            onDelete()
+                                            showDeleteConfirmation = false
+                                        }
+                                    ) {
+                                        Text(
+                                            "Delete",
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = {
+                                            showDeleteConfirmation = false
+                                        }
+                                    ) {
+                                        Text("Cancel")
+                                    }
+                                }
+                            )
+                        }
+                    }
+
                 }
             }
         }
@@ -328,31 +439,105 @@ fun TripHomeScreen(
     }
 }
 
+
 @Composable
-fun TripCard(trip: Trip, onClick: () -> Unit) {
+fun TripCard(
+    trip: Trip,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var showDeleteConfirmation by remember(trip.id) {
+        mutableStateOf(false)
+    }
+
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(trip.name, style = MaterialTheme.typography.titleLarge)
-            Text(trip.destination, style = MaterialTheme.typography.bodyLarge)
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Text(
+                trip.name,
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                trip.destination,
+                style = MaterialTheme.typography.bodyLarge
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
+
             Text("${trip.startDate} to ${trip.endDate}")
             Text("Budget: %.2f".format(trip.budget))
+
             if (trip.notes.isNotBlank()) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(trip.notes)
             }
+
             Spacer(modifier = Modifier.height(8.dp))
+
             Text(
                 "Tap to view itinerary →",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary
             )
+
+            TextButton(
+                onClick = {
+                    showDeleteConfirmation = true
+                }
+            ) {
+                Text(
+                    "Delete trip",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
         }
     }
+
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = {
+                showDeleteConfirmation = false
+            },
+            title = {
+                Text("Delete trip?")
+            },
+            text = {
+                Text(
+                    "Are you sure you want to delete \"${trip.name}\"? " +
+                            "This will also permanently delete its itinerary, expenses, and packing items."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete()
+                        showDeleteConfirmation = false
+                    }
+                ) {
+                    Text(
+                        "Delete",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirmation = false
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
+
 
 @Composable
 fun TripDetailsScreen(

@@ -1,3 +1,4 @@
+
 package com.example.tripmate.data
 
 import androidx.room.Dao
@@ -5,6 +6,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -25,6 +27,14 @@ interface TripDao {
     @Delete
     suspend fun deleteTrip(trip: Trip)
 
+    @Transaction
+    suspend fun deleteTripCompletely(trip: Trip) {
+        deleteActivitiesForTrip(trip.id)
+        deleteExpensesForTrip(trip.id)
+        deletePackingItemsForTrip(trip.id)
+        deleteTrip(trip)
+    }
+
     // ACTIVITIES
 
     @Query("SELECT * FROM activities WHERE tripId = :tripId ORDER BY dayNumber ASC, time ASC")
@@ -36,6 +46,9 @@ interface TripDao {
     @Delete
     suspend fun deleteActivity(activity: TripActivity)
 
+    @Query("DELETE FROM activities WHERE tripId = :tripId")
+    suspend fun deleteActivitiesForTrip(tripId: Int)
+
     // EXPENSES
 
     @Query("SELECT * FROM expenses WHERE tripId = :tripId ORDER BY id DESC")
@@ -46,6 +59,9 @@ interface TripDao {
 
     @Delete
     suspend fun deleteExpense(expense: Expense)
+
+    @Query("DELETE FROM expenses WHERE tripId = :tripId")
+    suspend fun deleteExpensesForTrip(tripId: Int)
 
     // PACKING ITEMS
 
@@ -60,4 +76,7 @@ interface TripDao {
 
     @Delete
     suspend fun deletePackingItem(item: PackingItem)
+
+    @Query("DELETE FROM packing_items WHERE tripId = :tripId")
+    suspend fun deletePackingItemsForTrip(tripId: Int)
 }
