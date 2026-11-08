@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LinearProgressIndicator
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.tripmate.data.Trip
 import com.example.tripmate.data.Expense
+import com.example.tripmate.data.PackingItem
 import com.example.tripmate.data.TripActivity
 import com.example.tripmate.data.TripDao
 import com.example.tripmate.data.TripDatabase
@@ -217,12 +219,19 @@ fun TripDetailsScreen(
     onBack: () -> Unit
 ) {
     var showBudgetScreen by remember(trip.id) { mutableStateOf(false) }
+    var showPackingScreen by remember(trip.id) { mutableStateOf(false) }
 
     if (showBudgetScreen) {
         BudgetScreen(
             trip = trip,
             tripDao = tripDao,
             onBack = { showBudgetScreen = false }
+        )
+    } else if (showPackingScreen) {
+        PackingScreen(
+            trip = trip,
+            tripDao = tripDao,
+            onBack = { showPackingScreen = false }
         )
     } else {
         val activities by tripDao.getActivities(trip.id)
@@ -264,6 +273,13 @@ fun TripDetailsScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Open trip budget")
+                    }
+
+                    Button(
+                        onClick = { showPackingScreen = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open packing checklist")
                     }
                 }
 
@@ -525,6 +541,170 @@ fun AddExpenseDialog(
                 }
             ) {
                 Text("Save expense")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+fun PackingScreen(
+    trip: Trip,
+    tripDao: TripDao,
+    onBack: () -> Unit
+) {
+    val packingItems by tripDao.getPackingItems(trip.id)
+        .collectAsState(initial = emptyList())
+    val coroutineScope = rememberCoroutineScope()
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    val packedCount = packingItems.count { it.isPacked }
+
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showAddDialog = true }) {
+                Text("+")
+            }
+        }
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                TextButton(onClick = onBack) {
+                    Text("← Back to trip")
+                }
+                Text("Packing checklist", style = MaterialTheme.typography.headlineLarge)
+                Text(trip.name, style = MaterialTheme.typography.titleLarge)
+                Text("$packedCount of ${packingItems.size} items packed")
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (packingItems.isEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "Your packing list is empty. Tap + to add your first item.",
+                            modifier = Modifier.padding(16.dp)
+                        )
+                    }
+                }
+            } else {
+                items(packingItems, key = { it.id }) { item ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = item.isPacked,
+                                    onCheckedChange = { checked ->
+                                        coroutineScope.launch {
+                                            tripDao.updatePackingItem(
+                                                item.copy(isPacked = checked)
+                                            )
+                                        }
+                                    }
+                                )
+                                Text(
+                                    text = item.name,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (item.isPacked) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        tripDao.deletePackingItem(item)
+                                    }
+                                }
+                            ) {
+                                Text("Delete")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        AddPackingItemDialog(
+            tripId = trip.id,
+            onDismiss = { showAddDialog = false },
+            onSave = { item ->
+                coroutineScope.launch {
+                    tripDao.insertPackingItem(item)
+                }
+                showAddDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+fun AddPackingItemDialog(
+    tripId: Int,
+    onDismiss: () -> Unit,
+    onSave: (PackingItem) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add packing item") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Item name") },
+                    singleLine = true
+                )
+                if (errorMessage.isNotBlank()) {
+                    Text(
+                        errorMessage,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (name.isBlank()) {
+                        errorMessage = "Please enter an item name."
+                    } else {
+                        onSave(
+                            PackingItem(
+                                tripId = tripId,
+                                name = name.trim()
+                            )
+                        )
+                    }
+                }
+            ) {
+                Text("Add item")
             }
         },
         dismissButton = {
