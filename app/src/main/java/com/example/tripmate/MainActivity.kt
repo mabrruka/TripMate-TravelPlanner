@@ -20,6 +20,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.example.tripmate.data.Trip
+import com.example.tripmate.data.Expense
 import com.example.tripmate.data.TripActivity
 import com.example.tripmate.data.TripDao
 import com.example.tripmate.data.TripDatabase
@@ -214,14 +216,140 @@ fun TripDetailsScreen(
     tripDao: TripDao,
     onBack: () -> Unit
 ) {
-    val activities by tripDao.getActivities(trip.id)
+    var showBudgetScreen by remember(trip.id) { mutableStateOf(false) }
+
+    if (showBudgetScreen) {
+        BudgetScreen(
+            trip = trip,
+            tripDao = tripDao,
+            onBack = { showBudgetScreen = false }
+        )
+    } else {
+        val activities by tripDao.getActivities(trip.id)
+            .collectAsState(initial = emptyList())
+        val coroutineScope = rememberCoroutineScope()
+        var showAddActivityDialog by remember { mutableStateOf(false) }
+
+        Scaffold(
+            floatingActionButton = {
+                FloatingActionButton(onClick = { showAddActivityDialog = true }) {
+                    Text("+")
+                }
+            }
+        ) { innerPadding ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    TextButton(onClick = onBack) {
+                        Text("← Back to trips")
+                    }
+                    Text(trip.name, style = MaterialTheme.typography.headlineLarge)
+                    Text(trip.destination, style = MaterialTheme.typography.titleLarge)
+                    Text("${trip.startDate} to ${trip.endDate}")
+                    Text("Trip budget: %.2f".format(trip.budget))
+
+                    if (trip.notes.isNotBlank()) {
+                        Text("Notes: ${trip.notes}")
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = { showBudgetScreen = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Open trip budget")
+                    }
+                }
+
+                item {
+                    Text("Your itinerary", style = MaterialTheme.typography.titleLarge)
+                    Text("Tap + to add an activity to this trip.")
+                }
+
+                if (activities.isEmpty()) {
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                "No activities added yet.",
+                                modifier = Modifier.padding(16.dp)
+                            )
+                        }
+                    }
+                } else {
+                    items(activities, key = { it.id }) { activity ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        activity.title,
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Text("Day ${activity.dayNumber} • ${activity.time}")
+                                }
+                                TextButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            tripDao.deleteActivity(activity)
+                                        }
+                                    }
+                                ) {
+                                    Text("Delete")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showAddActivityDialog) {
+            AddActivityDialog(
+                tripId = trip.id,
+                onDismiss = { showAddActivityDialog = false },
+                onSave = { activity ->
+                    coroutineScope.launch {
+                        tripDao.insertActivity(activity)
+                    }
+                    showAddActivityDialog = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun BudgetScreen(
+    trip: Trip,
+    tripDao: TripDao,
+    onBack: () -> Unit
+) {
+    val expenses by tripDao.getExpenses(trip.id)
         .collectAsState(initial = emptyList())
     val coroutineScope = rememberCoroutineScope()
-    var showAddActivityDialog by remember { mutableStateOf(false) }
+    var showAddExpenseDialog by remember { mutableStateOf(false) }
+
+    val spent = expenses.sumOf { it.amount }
+    val remaining = trip.budget - spent
+    val progress = if (trip.budget > 0) {
+        (spent / trip.budget).toFloat().coerceIn(0f, 1f)
+    } else {
+        0f
+    }
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddActivityDialog = true }) {
+            FloatingActionButton(onClick = { showAddExpenseDialog = true }) {
                 Text("+")
             }
         }
@@ -235,42 +363,59 @@ fun TripDetailsScreen(
         ) {
             item {
                 TextButton(onClick = onBack) {
-                    Text("← Back to trips")
+                    Text("← Back to trip")
                 }
-                Text(
-                    trip.name,
-                    style = MaterialTheme.typography.headlineLarge
-                )
-                Text(
-                    trip.destination,
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Text("${trip.startDate} to ${trip.endDate}")
-                Text("Trip budget: %.2f".format(trip.budget))
-                if (trip.notes.isNotBlank()) {
-                    Text("Notes: ${trip.notes}")
+                Text("Trip budget", style = MaterialTheme.typography.headlineLarge)
+                Text(trip.name, style = MaterialTheme.typography.titleLarge)
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Total budget")
+                        Text(
+                            "%.2f".format(trip.budget),
+                            style = MaterialTheme.typography.headlineMedium
+                        )
+                        Text("Spent: %.2f".format(spent))
+                        Text("Remaining: %.2f".format(remaining))
+
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Text("${(progress * 100).toInt()}% of budget used")
+
+                        if (remaining < 0) {
+                            Text(
+                                "You are over budget!",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
                 }
             }
 
             item {
-                Text(
-                    "Your itinerary",
-                    style = MaterialTheme.typography.titleLarge
-                )
-                Text("Tap + to add an activity to this trip.")
+                Text("Your expenses", style = MaterialTheme.typography.titleLarge)
+                Text("Tap + to record a new expense.")
             }
 
-            if (activities.isEmpty()) {
+            if (expenses.isEmpty()) {
                 item {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            "No activities added yet.",
+                            "No expenses recorded yet.",
                             modifier = Modifier.padding(16.dp)
                         )
                     }
                 }
             } else {
-                items(activities, key = { it.id }) { activity ->
+                items(expenses, key = { it.id }) { expense ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier
@@ -280,15 +425,17 @@ fun TripDetailsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    activity.title,
+                                    expense.title,
                                     style = MaterialTheme.typography.titleMedium
                                 )
-                                Text("Day ${activity.dayNumber} • ${activity.time}")
+                                Text(expense.category)
+                                Text("%.2f".format(expense.amount))
                             }
+
                             TextButton(
                                 onClick = {
                                     coroutineScope.launch {
-                                        tripDao.deleteActivity(activity)
+                                        tripDao.deleteExpense(expense)
                                     }
                                 }
                             ) {
@@ -301,21 +448,96 @@ fun TripDetailsScreen(
         }
     }
 
-    if (showAddActivityDialog) {
-        AddActivityDialog(
-            onDismiss = { showAddActivityDialog = false },
-            onSave = { activity ->
+    if (showAddExpenseDialog) {
+        AddExpenseDialog(
+            tripId = trip.id,
+            onDismiss = { showAddExpenseDialog = false },
+            onSave = { expense ->
                 coroutineScope.launch {
-                    tripDao.insertActivity(activity)
+                    tripDao.insertExpense(expense)
                 }
-                showAddActivityDialog = false
+                showAddExpenseDialog = false
             }
         )
     }
 }
 
 @Composable
+fun AddExpenseDialog(
+    tripId: Int,
+    onDismiss: () -> Unit,
+    onSave: (Expense) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("Other") }
+    var errorMessage by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add an expense") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Expense name") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { amount = it },
+                    label = { Text("Amount") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = category,
+                    onValueChange = { category = it },
+                    label = { Text("Category (e.g. Food, Transport)") },
+                    singleLine = true
+                )
+                if (errorMessage.isNotBlank()) {
+                    Text(
+                        errorMessage,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val value = amount.toDoubleOrNull()
+                    if (title.isBlank() || category.isBlank()) {
+                        errorMessage = "Enter an expense name and category."
+                    } else if (value == null || value <= 0) {
+                        errorMessage = "Enter an amount greater than zero."
+                    } else {
+                        onSave(
+                            Expense(
+                                tripId = tripId,
+                                title = title.trim(),
+                                amount = value,
+                                category = category.trim()
+                            )
+                        )
+                    }
+                }
+            ) {
+                Text("Save expense")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
 fun AddActivityDialog(
+    tripId: Int,
     onDismiss: () -> Unit,
     onSave: (TripActivity) -> Unit
 ) {
@@ -366,7 +588,7 @@ fun AddActivityDialog(
                     } else {
                         onSave(
                             TripActivity(
-                                tripId = 0,
+                                tripId = tripId,
                                 title = title.trim(),
                                 dayNumber = day,
                                 time = time.trim()
